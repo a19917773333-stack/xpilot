@@ -46,7 +46,7 @@ C3/C3XL 保留各自锁定的 mr-one 引导链和写前白名单校验，禁止�
 9. **提交**：在 `xpilot` 分支上，一个连贯改动一个提交，只包含这次改动的文件。只有在用户要求时才推送。
 10. **按插件拆分**：加功能就是在插件仓库加一个带 `plugin.json` 的插件目录。系统仓库的 `openpilot/tesla/plugins/` 只放核心插件，`manifest_check.py` M12 拒绝新目录。插件自动被发现，没有手写的注册表。插件内部按 5.3 拆分文件（入口 ≤150 行、其他 ≤400 行、只有 `ui.py` 画图），检查强制执行。
 11. **只用声明过的资源**：插件只能使用 `plugin.json` 里 `claims` 声明过的资源；宿主会拒绝未声明的 CAN 发送、钩子和进程。
-12. **车端数据只读、只经插件**：插件在 card 里用 `observe_can` 自己解析，再写进 `carStateSP` 里自己的字段（cereal 规则见第 7 条）；UI 和其他进程只读这些消息，不直接读 CAN。
+12. **车端数据只读、只经插件**：商店插件必须只用通用插件 API；在 card 里用 `observe_can` 自己解析，声明 `msg:<kind>` 后通过 `plugins.send_msg` / `PluginMsgs` 传数据（8d）。不再增加插件专用 cereal 字段；现有迁移缺口见 8d。UI 和其他进程只读消息，不直接读 CAN。
 13. **UI**：文字只用英文和 ASCII（设备字体没有 `‹ › · —` 等字）；磁贴只读消息、不写参数（设置写在详情页）；`hz` 按需要取最低值。
 14. **不加新依赖**：只用标准库和仓库里已有的库。商店插件需要编译的部分以预编译二进制发布（见 8c）。
 15. **推送分流**：插件的改动（`plugins/<id>/`、它的测试、`dist/`、`index.json`）只推到 `onemiless/xpilot-plugins`；系统的改动（宿主、商店、UI、核心插件、panda safety、`safety.json`、检查脚本、文档）只推到 `onemiless/xpilot`。一个功能两边都要改时分成两个提交、两个 PR，先合系统仓库。两个仓库的默认分支都受保护：走 PR，CI 通过才能合并（管理员可以直接推）。
@@ -248,7 +248,7 @@ SP 里的调用位置：`selfdrive/car/card.py`（`CarPlugins`、`radar_interfac
 
 1. **先想清楚类型**，选最小的一种：
    - 只显示：一个 `ui.py` 磁贴或叠加层，读已有的消息。`claims` 为空，可以默认开启。
-   - 读车端数据再显示：card 钩子 `observe_can` 解析 + `publish_state` 写到 `carStateSP` 的新字段，`ui.py` 磁贴订阅 `carStateSP`。参考插件仓库的 `plugins/bms/`。
+   - 读车端数据再显示：card 钩子 `observe_can` 解析，声明 `msg:<kind>`，通过 `plugins.send_msg` 发消息，`ui.py` 用 `PluginMsgs` 读；先检查 8d 的单发布端限制。不能照搬旧插件往 `carStateSP` 加字段的做法。
    - 影响驾驶：用第 4.4 节的规划/控制钩子，声明对应 claim；能"只收紧"的就不要"替换"。
    - 发 CAN：`control_sends` + `can.tx` claim + panda 运行时规则（第 6 节）。参考插件仓库的 `plugins/auto_speed/`、`plugins/ambient_light/`。
    - 独立进程：`processes()` + `process:<名字>` claim。参考插件仓库的 `plugins/traffic_light/`、`plugins/external_compute/`。
@@ -328,7 +328,7 @@ class MyTile(Tile):
 | `ui.plugin_ui.ScreenOverlay` | `update(sm)`、`draw(zones)` | 大屏行驶时的整屏叠加层 |
 | `ui.plugin_ui.HudOverlay` | Widget：`update()`、`render(rect)`；读 `ui_state.sm` | mici 行驶画面叠加层 |
 
-**消息**（插件可以读或发布）：`carStateSP` 里插件自己的字段（例 `teslaBattery`）、`liveMapDataSP` 和 `navInstruction`（地图和导航，第 8 节）、`externalIn` / `externalOut`（外接算力，8b），以及 SP 的所有服务（`carState`、`radarState`、`longitudinalPlan`、`deviceState` 等）。
+**消息**：商店插件自己的数据通过 `pluginMsg`（8d）发布和接收，不再扩展系统 cereal。可以读取 `liveMapDataSP` 和 `navInstruction`（地图和导航，第 8 节）、`externalIn` / `externalOut`（外接算力，8b），以及 SP 的服务（`carState`、`radarState`、`longitudinalPlan`、`deviceState` 等）。
 
 **panda safety**：插件声明 ABI v1 规则，固件统一验证和执行，见第 6 节；旧 C 插件接口只供差分测试。
 
@@ -473,12 +473,18 @@ X-50 自动速度策略和 G3 横向均未实现；刷写和实车接合测试�
 
 ## 8d. 插件间消息 `pluginMsg`
 
-- **用途**：插件之间传数据的通用通道，不用再为每个插件加 cereal 字段。已有自己 cereal 字段的插件（如 `traffic_light`）保持不变。
+- **用途**：所有商店插件都必须是纯插件/API；自己的数据走通用消息，不为插件保留专用 cereal 接口。历史字段迁移后保留 ordinal 和类型、改名为 `deprecated*`，且不再写入；当前阻碍见下文。
 - **消息**：cereal 服务 `pluginMsg`（`log.capnp` 的 `@139`，原 `customReserved13`），类型和外接算力相同，都是 `ExternalData`：`source`、`kind`、`seq`、`payload`（JSON 文本）、`validForMs`（0 表示不过期）。
 - **发送**：`plugins.send_msg(pm, plugin, kind, payload, valid_for_ms)`，`pm` 要能发 `pluginMsg`，`plugin` 传插件类或实例。宿主填 `source` = 插件 id，插件自己改不了。清单里没有 `msg:<kind>` 声明的类型一律拒发，返回 False，并像其他越权一样记到 `XpilotPluginFaults`。
 - pluginMsg 当前只支持一个实际发布端；同一进程也不得创建多个独立发布实例。多发布者冲突目前只做故障处理，不保证原发布者继续发送。
 - **接收**：`plugins.PluginMsgs()` 订阅 `pluginMsg`（不合并），`fresh(kind)` 返回 `{来源插件 id: payload}`，每个来源只取最新一条，过了 `validForMs` 的不返回。
 - **只做建议**：和外接算力一样，收到的数据只能通过接收方插件自己的钩子和限制生效。
+
+**X-20261026-58 迁移缺口（2026-10-26，未完成）**：`traffic_light` 原始观测和 `bms` 状态目前由 card 的 `publish_state` 写入专用字段；最终计划诊断由 plannerd 写入，控制仍只通过 `plan.filter`。系统运行代码没有读取这四个历史字段；插件仓库仍有读写，所以本次不能先重命名 schema，也不能把现有版本标成纯插件。
+
+`tools/sp_tesla_e2e/plugin_msg_e2e.py` 用隔离命名空间、真实 IPC 和 `send_msg` / `PluginMsgs` 重现：一个共享发布端可发送观测 100 Hz、BMS 100 Hz、计划诊断 20 Hz（沿用当前调用频率），约一秒收到 100/100/20 条。默认字段值、8 字节 CAN 的十六进制编码及采样序号的代表性消息分别为 592/176/800 字节，合计 92,800 B/s；这不是实车带宽测量或容量上限。第二进程一发消息就替换原发布端，原端随后发送失败（`Address already in use`）。因此至少两个进程的发布需求无法由当前单发布端 API 满足；即使把 BMS 降到磁贴的 2 Hz，也仍有发布冲突。card 也没有可供插件共享的 `pluginMsg` publisher 参数。先补通用的多来源发布能力及并发/故障/过期验证，再迁移插件；不新增专用系统字段。
+
+复现：在已安装本仓库依赖、可加载匹配版本 msgq 的 Python 环境运行 `python3 tools/sp_tesla_e2e/plugin_msg_e2e.py`。标准输出 JSON 是证据；当前预期退出码 **1**、`migration_ready: false`。检查不访问设备、不写 Params。系统支持 PR 先合、插件迁移 PR 后合；只有新插件完全不再访问旧字段、且目标系统具备其所用消息 API 时才能先安装到旧系统。本次未发布新版本、未执行部署。
 
 ## 9. UI（大屏，2160×1080，UI v4：磁贴）
 
