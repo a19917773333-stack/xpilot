@@ -1,6 +1,7 @@
 """CarState failure cases:
 CS1 stock Autosteer enabled no longer raises invalidLkasSetting (except MISSING_DAS_SETTINGS).
 CS2 the SP extension changes the source invalidLkasSetting or another CarState field.
+CS3 the legacy 2-bit protocol uses DAS_autopilotState for invalidLkasSetting.
 """
 import re
 import unittest
@@ -58,6 +59,27 @@ PLATFORM_TO_CAR = {
 
 
 class TestTeslaCarState(unittest.TestCase):
+  def test_legacy_two_bit_autopilot_state_controls_invalid_lkas(self):
+    """CS3: DAS_autosteerEnabled reports availability, not active AP state."""
+    for autopilot_state, expected_invalid in ((0, False), (1, False), (2, False), (3, True)):
+      with self.subTest(autopilot_state=autopilot_state):
+        candidate = CAR.TESLA_MODEL_Y
+        CP = CarParams(carFingerprint=candidate.value, flags=int(TeslaFlags.DAS_STEERING_2_BIT))
+        CP_SP = CarParamsSP()
+        cs = CarState(CP, CP_SP)
+        parsers = cs.get_can_parsers(CP, CP_SP)
+        parsers[Bus.ap_party].vl["DAS_settings"]
+        parsers[Bus.ap_party].vl["DAS_status"]
+        packer = CANPacker(get_dbc(CP.carFingerprint, CP.flags)[Bus.party])
+        parsers[Bus.ap_party].update([(0, [
+          packer.make_can_msg("DAS_settings", CANBUS.autopilot_party, {"DAS_autosteerEnabled": 1}),
+          packer.make_can_msg("DAS_status", CANBUS.autopilot_party, {"DAS_autopilotState": autopilot_state}),
+        ])])
+
+        with patch.object(CarStateExt, "update", lambda *args: None):
+          ret, _ = cs.update(parsers)
+        self.assertEqual(ret.invalidLkasSetting, expected_invalid, "CS3: legacy AP state")
+
   def test_stock_autosteer_setting(self):
     update_ext = CarStateExt.update
     for candidate in CAR:

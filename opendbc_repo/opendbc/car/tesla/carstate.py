@@ -114,7 +114,11 @@ class CarState(CarStateBase, CarStateExt):
     # Stock Autosteer should be off (includes FSD)
     # TODO: find for TESLA_MODEL_X and HW2.5 vehicles
     if not (self.CP.flags & TeslaFlags.MISSING_DAS_SETTINGS):
-      ret.invalidLkasSetting = cp_ap_party.vl["DAS_settings"]["DAS_autosteerEnabled"] != 0
+      if self.CP.flags & TeslaFlags.DAS_STEERING_2_BIT:
+        autopilot_state = int(cp_ap_party.vl["DAS_status"]["DAS_autopilotState"])
+        ret.invalidLkasSetting = autopilot_state not in (0, 1, 2)  # DISABLED, UNAVAILABLE, AVAILABLE
+      else:
+        ret.invalidLkasSetting = cp_ap_party.vl["DAS_settings"]["DAS_autosteerEnabled"] != 0
 
     # Buttons # ToDo: add Gap adjust button
 
