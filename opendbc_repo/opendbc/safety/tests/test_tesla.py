@@ -7,6 +7,10 @@ SA1 with TeslaSafetyFlagsSP.STOCK_AP a stock 0x488/0x2B9/0x27D frame from the AP
     (stock Autosteer, TACC or EAC would stop), with or without openpilot longitudinal.
 SA2 with STOCK_AP openpilot can still send 0x488/0x2B9/0x27D while controls are allowed.
 SA3 without STOCK_AP stock 0x488 is forwarded while stock LKAS is off (the flag leaks into the default mode).
+Tesla steering protocol failure cases:
+TP1 legacy 2-bit LKAS is decoded with the 3-bit shift and is not recognized as stock LKAS.
+TP2 a valid 2-bit LKAS transmit frame is rejected by the 2-bit safety mode.
+TP3 a 2-bit frame is accepted by the 3-bit safety mode after confusing the control type.
 """
 import random
 import unittest
@@ -49,6 +53,7 @@ class TestTeslaSafetyBase(common.CarSafetyTest, common.AngleSteeringSafetyTest, 
   # Angle control limits
   STEER_ANGLE_MAX = 360  # deg
   DEG_TO_CAN = 10
+  STEER_CONTROL_TYPE_COUNT = 8
 
   # Tesla uses get_max_angle_delta_vm and get_max_angle_vm for real lateral accel and jerk limits
   # TODO: integrate this into AngleSteeringSafetyTest
@@ -273,7 +278,7 @@ class TestTeslaSafetyBase(common.CarSafetyTest, common.AngleSteeringSafetyTest, 
   def test_steering_control_type(self):
     # Only angle control is allowed (no LANE_KEEP_ASSIST, EMERGENCY_LANE_KEEP, or FSD)
     self.safety.set_controls_allowed(True)
-    for steer_control_type in range(8):
+    for steer_control_type in range(self.STEER_CONTROL_TYPE_COUNT):
       should_tx = steer_control_type in (self.steer_control_types["NONE"],
                                          self.steer_control_types["ANGLE_CONTROL"],
                                          self.steer_control_types["LANE_KEEP_ASSIST"])
@@ -454,6 +459,59 @@ class TestTeslaLongitudinalSafety(TestTeslaSafetyBase):
 
 class TestTeslaFSD14LongitudinalSafety(TestTeslaLongitudinalSafety):
   SAFETY_PARAM = TeslaSafetyFlags.LONG_CONTROL | TeslaSafetyFlags.FSD_14
+
+
+class TestTesla2BitStockSafety(TestTeslaStockSafety):
+  DBC = "tesla_model3_party_2bit"
+  STEER_CONTROL_TYPE_COUNT = 4
+  SAFETY_PARAM = TeslaSafetyFlags.DAS_STEERING_2_BIT
+
+
+class TestTesla2BitLongitudinalSafety(TestTeslaLongitudinalSafety):
+  DBC = "tesla_model3_party_2bit"
+  STEER_CONTROL_TYPE_COUNT = 4
+  SAFETY_PARAM = TeslaSafetyFlags.LONG_CONTROL | TeslaSafetyFlags.DAS_STEERING_2_BIT
+
+
+class TestTeslaSteeringProtocolSafety(unittest.TestCase):
+  def setUp(self):
+    self.safety = libsafety_py.libsafety
+    self.packer_2bit = CANPackerSafety("tesla_model3_party_2bit")
+    self.packer_3bit = CANPackerSafety("tesla_model3_party")
+
+  def _init(self, param):
+    self.safety.set_safety_hooks(CarParams.SafetyModel.tesla, param)
+    self.safety.init_tests()
+
+  def _steering_frame(self, packer, control_type):
+    return packer.make_can_msg_safety("DAS_steeringControl", CANBUS.party, {
+      "DAS_steeringAngleRequest": 0, "DAS_steeringControlType": control_type,
+    })
+
+  def _stock_lkas_forwarded(self, param, packer):
+    self._init(param)
+    self.safety.set_controls_allowed(False)
+    self.safety.safety_rx_hook(self._steering_frame(packer, 2))
+    return self.safety.safety_fwd_hook(2, MSG_DAS_steeringControl) == -1
+
+  def test_2bit_stock_lkas_uses_bit_six(self):
+    self.assertTrue(self._stock_lkas_forwarded(TeslaSafetyFlags.DAS_STEERING_2_BIT, self.packer_2bit),
+                    "TP1: legacy LKAS must be recognized with the 2-bit shift")
+
+  def test_2bit_tx_lkas_is_allowed(self):
+    self._init(TeslaSafetyFlags.DAS_STEERING_2_BIT)
+    self.safety.set_controls_allowed(True)
+    self.assertTrue(self.safety.safety_tx_hook(self._steering_frame(self.packer_2bit, 2)),
+                    "TP2: valid 2-bit LKAS command must pass the 2-bit safety mode")
+
+  def test_3bit_mode_does_not_accept_2bit_lkas_encoding(self):
+    self._init(0)
+    self.safety.set_controls_allowed(True)
+    self.assertFalse(self.safety.safety_tx_hook(self._steering_frame(self.packer_2bit, 2)),
+                     "TP3: protocol flags must remain distinct")
+
+  def test_3bit_stock_lkas_still_uses_bit_five(self):
+    self.assertTrue(self._stock_lkas_forwarded(0, self.packer_3bit))
 
 
 class TestTeslaIgnition(common.SafetyTestBase):

@@ -133,6 +133,7 @@ class CarControllerParams:
 class TeslaSafetyFlags(IntFlag):
   LONG_CONTROL = 1
   FSD_14 = 2
+  DAS_STEERING_2_BIT = 4
 
   # deprecated flags
   DAS_STEERING_3_BIT_DEPRECATED = 2
@@ -142,12 +143,23 @@ class TeslaFlags(IntFlag):
   LONG_CONTROL = 1
   FSD_14 = 2
   MISSING_DAS_SETTINGS = 4
+  DAS_STEERING_2_BIT = 8
 
   # deprecated flags
-  # old 2-bit FW is now dashcammed
+  # legacy 3-bit marker flag retained for serialized compatibility
   DAS_STEERING_3_BIT_DEPRECATED = 2
 
 
 DBC = CAR.create_dbc_map()
+DBC_2_BIT = {
+  candidate: {**dbcs, Bus.party: 'tesla_model3_party_2bit'}
+  for candidate, dbcs in DBC.items() if candidate in (CAR.TESLA_MODEL_3, CAR.TESLA_MODEL_Y)
+}
+
+
+def get_dbc(candidate, flags: int) -> DbcDict:
+  if flags & TeslaFlags.DAS_STEERING_2_BIT:
+    return DBC_2_BIT[candidate]
+  return DBC[candidate]
 
 STEER_THRESHOLD = 1

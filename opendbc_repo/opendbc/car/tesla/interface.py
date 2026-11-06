@@ -49,8 +49,15 @@ class CarInterface(CarInterfaceBase):
     # - HW2.5/HW3/HW4: DI_autonomyHealth (0x054)
     das_steering_3_bit = 0x489 in fingerprint[CANBUS.autopilot_party] or 0x054 in fingerprint[CANBUS.party]
 
+    # Model 3/Y vehicles on older firmware use the 2-bit layout. Keep the
+    # protocol explicit in CarParams so the DBC and panda safety bits agree.
+    das_steering_2_bit = not das_steering_3_bit and candidate in (CAR.TESLA_MODEL_3, CAR.TESLA_MODEL_Y)
+    if das_steering_2_bit:
+      ret.flags |= TeslaFlags.DAS_STEERING_2_BIT.value
+      ret.safetyConfigs[0].safetyParam |= TeslaSafetyFlags.DAS_STEERING_2_BIT.value
+
     ret.dashcamOnly = (candidate in (CAR.TESLA_MODEL_X,) or  # dashcam only, pending find invalidLkasSetting signal
-                       (not das_steering_3_bit and not docs))  # the car's software needs to be updated
+                       (not das_steering_3_bit and not das_steering_2_bit and not docs))
 
     return ret
 

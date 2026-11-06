@@ -13,7 +13,7 @@ from opendbc.car.tesla.carstate import CarState
 from opendbc.car.tesla.interface import CarInterface
 from opendbc.car.tesla.fingerprints import FW_VERSIONS
 from opendbc.car.tesla.radar_interface import RADAR_START_ADDR
-from opendbc.car.tesla.values import CAR, DBC, CANBUS, TeslaFlags
+from opendbc.car.tesla.values import CAR, DBC, DBC_2_BIT, CANBUS, TeslaFlags, TeslaSafetyFlags, get_dbc
 from opendbc.sunnypilot.car.tesla.carstate_ext import CarStateExt
 from opendbc.sunnypilot.car.tesla.values import TeslaFlagsSP
 
@@ -113,3 +113,55 @@ class TestTeslaFingerprint(unittest.TestCase):
         fingerprint[1][RADAR_START_ADDR] = 8
       CP = CarInterface.get_params(CAR.TESLA_MODEL_X, fingerprint, [], False, False, False)
       assert CP.radarUnavailable  # Always unavailable since no radar DBC
+
+
+class TestTeslaSteeringProtocol(unittest.TestCase):
+  """Steering protocol failure cases:
+  SP1 a 2021 Model Y without 3-bit markers is still left in dashcam mode.
+  SP2 0x054 on the vehicle bus is mistaken for the 3-bit party-bus marker.
+  SP3 the legacy 2-bit protocol is packed with the 3-bit signal width.
+  SP4 Model X is enabled by the generic legacy fallback.
+  """
+
+  @staticmethod
+  def _params(candidate, bus=None, address=None):
+    fingerprint = gen_empty_fingerprint()
+    if bus is not None:
+      fingerprint[bus][address] = 8
+    return CarInterface.get_params(candidate, fingerprint, [], False, False, False)
+
+  def test_legacy_model_3_and_y_are_supported(self):
+    for candidate in (CAR.TESLA_MODEL_3, CAR.TESLA_MODEL_Y):
+      with self.subTest(candidate=candidate):
+        CP = self._params(candidate)
+        self.assertFalse(CP.dashcamOnly, "SP1: 2-bit Model 3/Y must not be dashcam-only")
+        self.assertTrue(CP.flags & TeslaFlags.DAS_STEERING_2_BIT)
+        self.assertTrue(CP.safetyConfigs[0].safetyParam & TeslaSafetyFlags.DAS_STEERING_2_BIT)
+        self.assertEqual(get_dbc(CP.carFingerprint, CP.flags), DBC_2_BIT[candidate])
+
+  def test_vehicle_bus_054_does_not_select_three_bit(self):
+    CP = self._params(CAR.TESLA_MODEL_Y, CANBUS.vehicle, 0x054)
+    self.assertFalse(CP.dashcamOnly, "SP2: bus 1 0x054 is not the party-bus marker")
+    self.assertTrue(CP.flags & TeslaFlags.DAS_STEERING_2_BIT)
+
+  def test_three_bit_markers_select_three_bit(self):
+    for bus, address in ((CANBUS.party, 0x054), (CANBUS.autopilot_party, 0x489)):
+      with self.subTest(bus=bus, address=hex(address)):
+        CP = self._params(CAR.TESLA_MODEL_Y, bus, address)
+        self.assertFalse(CP.dashcamOnly)
+        self.assertFalse(CP.flags & TeslaFlags.DAS_STEERING_2_BIT)
+        self.assertFalse(CP.safetyConfigs[0].safetyParam & TeslaSafetyFlags.DAS_STEERING_2_BIT)
+        self.assertEqual(get_dbc(CP.carFingerprint, CP.flags), DBC[CAR.TESLA_MODEL_Y])
+
+  def test_model_x_is_not_enabled_by_legacy_fallback(self):
+    CP = self._params(CAR.TESLA_MODEL_X)
+    self.assertTrue(CP.dashcamOnly, "SP4: Model X remains unsupported")
+    self.assertFalse(CP.flags & TeslaFlags.DAS_STEERING_2_BIT)
+
+  def test_legacy_packer_uses_two_bit_signal(self):
+    legacy_packer = CANPacker(DBC_2_BIT[CAR.TESLA_MODEL_Y][Bus.party])
+    _, data, _ = legacy_packer.make_can_msg("DAS_steeringControl", CANBUS.party, {
+      "DAS_steeringAngleRequest": 0, "DAS_steeringControlType": 1,
+    })
+    self.assertEqual(data[2] >> 6, 1, "SP3: legacy control type starts at bit 6")
+    self.assertEqual(data[2] >> 5, 2, "SP3: 3-bit decoding would misread this frame")

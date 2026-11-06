@@ -18,6 +18,7 @@
 
 static bool tesla_longitudinal = false;
 static bool tesla_fsd_14 = false;
+static bool tesla_das_steering_2_bit = false;
 static bool tesla_stock_aeb = false;
 
 // Only rising edges while controls are not allowed are considered for these systems:
@@ -324,6 +325,10 @@ static int tesla_get_steer_ctrl_type(const int ctrl_type) {
   return steer_ctrl_type;
 }
 
+static uint8_t tesla_get_steer_ctrl_type_shift(void) {
+  return tesla_das_steering_2_bit ? 6U : 5U;
+}
+
 static void tesla_rx_hook(const CANPacket_t *msg) {
   // Steering angle: (0.1 * val) - 819.2 in deg.
   if (msg_matches(msg, 0x370U, 0U)) {
@@ -411,7 +416,7 @@ static void tesla_rx_hook(const CANPacket_t *msg) {
 
   // DAS_steeringControl
   if (msg_matches(msg, 0x488U, 2U)) {
-    int steering_control_type = msg->data[2] >> 5;  // DAS_steeringControlType
+    int steering_control_type = msg->data[2] >> tesla_get_steer_ctrl_type_shift();  // DAS_steeringControlType
     bool tesla_stock_lkas_now = steering_control_type == tesla_get_steer_ctrl_type(2);  // "LANE_KEEP_ASSIST"
 
     // Only consider rising edges while controls are not allowed
@@ -464,7 +469,7 @@ static bool tesla_tx_hook(const CANPacket_t *msg) {
     // We use 1/10 deg as a unit here
     int raw_angle_can = ((msg->data[0] & 0x7FU) << 8) | msg->data[1];
     int desired_angle = raw_angle_can - 16384;
-    int steer_control_type = msg->data[2] >> 5;
+    int steer_control_type = msg->data[2] >> tesla_get_steer_ctrl_type_shift();
     const int angle_ctrl_type = tesla_get_steer_ctrl_type(1);
     const int lkas_ctrl_type = tesla_get_steer_ctrl_type(2);
     bool steer_control_enabled = (steer_control_type == angle_ctrl_type) ||  // ANGLE_CONTROL
@@ -592,7 +597,9 @@ static safety_config tesla_init(uint16_t param) {
   };
 
   const uint16_t TESLA_FLAG_FSD_14 = 2;
-  tesla_fsd_14 = GET_FLAG(param, TESLA_FLAG_FSD_14);
+  const uint16_t TESLA_FLAG_DAS_STEERING_2_BIT = 4;
+  tesla_das_steering_2_bit = GET_FLAG(param, TESLA_FLAG_DAS_STEERING_2_BIT);
+  tesla_fsd_14 = GET_FLAG(param, TESLA_FLAG_FSD_14) && !tesla_das_steering_2_bit;
 
   const uint16_t TESLA_FLAG_LONGITUDINAL_CONTROL = 1;
   tesla_long_reset(GET_FLAG(param, TESLA_FLAG_LONGITUDINAL_CONTROL));
