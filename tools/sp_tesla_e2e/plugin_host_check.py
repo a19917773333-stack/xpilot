@@ -24,7 +24,8 @@ Failure cases listed before implementation:
 - P18 two raising plugins: the higher one wins (should be the lower, more conservative one)
 - P19 a long target that raises takes plannerd down or keeps running; None changes nothing
 - P20 a disabled plugin still contributes a long target
-- P21 an active source:radar plugin does not replace the port's radar, or one without the claim does
+- P21 an active source:radar plugin does not replace the port's radar, a passthrough marker loses the port result,
+       a non-passthrough None falls back to it, or one without the claim replaces the port's radar
 - P22 a radar plugin that raises takes card down or keeps being called; the port's radar must take over
 - P23 an active source:map plugin leaves SP's OSM map processes running (two liveMapDataSP publishers),
        or a disabled one stops them
@@ -759,6 +760,14 @@ def source_checks(plugins, real) -> list[str]:
   plugins.PLUGINS = (plugin("radar", ("source:radar",), "radar_interface", Radar("plugin")),)
   if plugins.radar_interface(CP, None, FakeParams(), port).update([]) != "plugin":
     errors.append("P21 active radar plugin did not replace the port's radar")
+  oem = Radar(None)
+  oem.uses_port_radar = True
+  plugins.PLUGINS = (plugin("radar", ("source:radar",), "radar_interface", oem),)
+  if plugins.radar_interface(CP, None, FakeParams(), port).update([]) != "port":
+    errors.append("P21 radar passthrough did not return the port's output")
+  plugins.PLUGINS = (plugin("radar", ("source:radar",), "radar_interface", Radar(None)),)
+  if plugins.radar_interface(CP, None, FakeParams(), port).update([]) is not None:
+    errors.append("P21 non-passthrough radar None fell back to the port")
   plugins.PLUGINS = (plugin("radar", (), "radar_interface", Radar("plugin")),)
   if plugins.radar_interface(CP, None, FakeParams(), port) is not port:
     errors.append("P21 radar plugin without source:radar replaced the port's radar")

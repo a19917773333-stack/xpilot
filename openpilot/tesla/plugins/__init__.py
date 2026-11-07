@@ -644,7 +644,11 @@ def accel_boost(CP, CP_SP, params, sp_boost):
 
 # ---- card: replaceable radar ----
 class _GuardedRadar:
-  """Reads the plugin radar while the port's RadarInterface runs alongside; if the plugin raises the port's takes over for good."""
+  """Reads the plugin radar while the port's RadarInterface runs alongside; if the plugin raises the port's takes over for good.
+
+  A plugin may set `uses_port_radar = True` on the object returned by its radar_interface hook. In that mode a None
+  result means the plugin is intentionally deferring to the port's radar, not suppressing this frame.
+  """
 
   def __init__(self, plugin, sp):
     self.plugin, self.sp, self._plugins = plugin, sp, [plugin]
@@ -657,6 +661,8 @@ class _GuardedRadar:
     if self._plugins:
       ok, out = _call(self._plugins, self.plugin, "update", "card.radar_interface", can_list)
       if ok:
+        if out is None and getattr(self.plugin, "uses_port_radar", False):
+          return sp_out
         return out
     return sp_out
 

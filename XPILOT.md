@@ -506,6 +506,8 @@ X-50 自动速度策略和 G3 横向均未实现；刷写和实车接合测试�
 
 写一个声明 `source:radar` 的插件，实现 `radar_interface` 钩子（见 4.4）。插件关闭、没有声明或出错时用原车雷达。外接雷达如果需要发送报文，还要声明 `can.tx` 并携带 panda 运行时规则。
 
+插件返回的接口默认是替代源：`update()` 返回 `None` 表示本帧不发布雷达数据；关闭雷达时用 `RadarInterfaceBase` 的周期性空 `RadarData`，不能靠返回 `None` 假装关闭。需要原厂雷达与插件接口并行时，在返回对象上设 `uses_port_radar = True`；宿主仍运行原车雷达，并把插件的 `None` 解释为回传同周期原车结果。这个标记是通用宿主合同，不按插件 id 特判。
+
 `opendbc_repo/opendbc/car/car_helpers.py` 里的 `RADAR_PLUGINS` 是旧接口，已不用，保持为空（opendbc 不改）。
 
 ## 8. 地图接口

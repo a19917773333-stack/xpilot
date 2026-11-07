@@ -163,5 +163,6 @@ class Plugin:
   def radar_interface(cls, CP, CP_SP, params):
     """None, or a RadarInterfaceBase (update(can_list) -> RadarData or None) replacing the port's radar in card; needs
     the source:radar claim. The port's radar keeps running alongside and takes over for good if this one raises.
-    A radar that sends CAN also needs a panda safety plugin."""
+    Set uses_port_radar=True on the returned object to defer a None result to that port radar. A radar that sends CAN
+    also needs a panda safety plugin."""
     return None
