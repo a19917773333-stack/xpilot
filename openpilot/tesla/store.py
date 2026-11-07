@@ -1,6 +1,6 @@
 """Plugin store client: read the plugin repository index, install, update and remove downloaded plugins.
 
-Repository (https://github.com/onemiless/xpilot-plugins): plugins/<id>/ sources, dist/<id>-<version>.tar.gz built
+Repository (https://github.com/a19917773333-stack/xpilot-plugins): plugins/<id>/ sources, dist/<id>-<version>.tar.gz built
 reproducibly by its tools/build_index.py, and index.json:
   {"api": 1, "plugins": [{"id", "name", "version", "api", "category", "author", "description", "url", "sha256"}]}
 Third parties send pull requests; the maintainer reviews and merges. Archives are not signed (yet): the sha256 only
@@ -31,7 +31,7 @@ from openpilot.common.utils import atomic_write
 from openpilot.tesla import host_api, manifest as mf
 from openpilot.tesla.plugin_params import ParamsView, STORE_TYPES
 
-INDEX_URL = "https://raw.githubusercontent.com/onemiless/xpilot-plugins/main/index.json"
+INDEX_URL = "https://raw.githubusercontent.com/a19917773333-stack/xpilot-plugins/main/index.json"
 # First boot: index defaults installed once; a removed default stays removed.
 DEFAULTS_DONE = ".defaults_done"
 MAX_ARCHIVE = 20 * 1024 * 1024

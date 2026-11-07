@@ -32,7 +32,7 @@ jobs:
       run: scons -j4 msgq/ipc_pyx.so
     - uses: actions/checkout@v4
       with:
-        repository: onemiless/xpilot-plugins
+        repository: a19917773333-stack/xpilot-plugins
         path: xpilot-plugins
         ref: ${{ inputs.plugins_ref }}
     - name: Record commits

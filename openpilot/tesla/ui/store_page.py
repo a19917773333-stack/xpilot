@@ -18,7 +18,7 @@ class StorePage(NavScroller):
     back = BigButton(tr('Back'))
     back.set_click_callback(gui_app.pop_widget)
     self._scroller.add_widget(back)
-    self.refresh = BigButton(tr('Refresh'), description=tr('Download the plugin list from github.com/onemiless/xpilot-plugins.'))
+    self.refresh = BigButton(tr('Refresh'), description=tr('Download the plugin list from github.com/a19917773333-stack/xpilot-plugins.'))
     self.refresh.set_click_callback(lambda: self._jobs.run(self._jobs.fetch))
     self.refresh.set_enabled(lambda: not self._jobs.busy)
     self._scroller.add_widget(self.refresh)
