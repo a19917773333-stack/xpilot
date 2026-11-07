@@ -1003,7 +1003,10 @@ def registration_checks(plugins) -> list[str]:
   finally:
     plugins.INSTALLED_SPECS = installed_specs
 
-  from openpilot.system.manager import process_config
+  # mapd_manager creates Params objects at import time. Isolate P54 from the host's compiled Params.
+  import importlib
+  with patch("openpilot.common.params.Params", lambda *args, **kwargs: FakeParams()):
+    process_config = importlib.import_module("openpilot.system.manager.process_config")
   mapd = {p.name: p for p in process_config.procs if p.name in ("mapd_manager", "map_osm")}
   map_params = FakeParams({"MapProvider": "osm"})
   if not (mapd["mapd_manager"].should_run(False, map_params, None) and mapd["map_osm"].should_run(True, map_params, None)):
