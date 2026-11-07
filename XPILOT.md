@@ -313,6 +313,7 @@ class MyTile(Tile):
 `can_list` 每一项是 `(mono_time_ns, [(address, data, bus), ...])`；总线编号用 `opendbc.car.tesla.values.CANBUS`（`party`、`vehicle`、`autopilot_party`）。解析可以用位运算，也可以用 `opendbc.can.CANParser` 读 `opendbc/dbc/` 里的 DBC。
 
 **参数**：钩子拿到的 `params` 是 `openpilot.tesla.plugin_params.ParamsView`：`get(key)`、`get_bool(key)`、`put(key, value)`、`put_bool(key, value)`、`remove(key)`，内置和商店插件用法一样。
+`processes()` 返回进程的 `should_run(started, params, CP)` 也收到同一个 `ParamsView`，不得用未包装的 manager Params 直接读取商店插件参数。
 
 **宿主工具**（`openpilot/tesla/plugins/__init__.py`，给宿主和页面用，插件一般不需要）：`PLUGINS`、`is_enabled(cls, params)`、`active(params)`、`resolve(params) -> (生效的插件, 冲突)`、`holds(params, claim)`、`FAULTS_PARAM`（`XpilotPluginFaults`）、`LOAD_ERRORS`。
 

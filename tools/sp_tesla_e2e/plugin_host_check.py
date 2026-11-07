@@ -64,6 +64,7 @@ Run from the repo root with the openpilot python env. Native-only modules (Param
       tesla_dynamic_acc, owner 2026-10-28)
 - P51 shadow logs non-SP/old ABI/stale/wrong bus/malformed CAN or exceeds 25 Hz; OEM endpoints/counter or SP accel are lost
 - P52 a plugin whose requires.plugins dependency is off switches on, or the refusal hides the dependency's title
+- P53 a plugin process should_run reads a downloaded-plugin setting through raw Params instead of ParamsView
 """
 import ast
 import json
@@ -972,6 +973,25 @@ def registration_checks(plugins) -> list[str]:
   procs = apply(official(), None)
   if any(p is r for p in procs for r in rogue) or plugins.processes():
     errors.append("P36 processes() registered a reserved model process name")
+
+  class DownloadedProcess(Plugin):
+    NAME, ENABLE_PARAM = "downloaded_process", None
+    CLAIMS = ("process:downloadedd",)
+
+    @classmethod
+    def processes(cls):
+      return [types.SimpleNamespace(name="downloadedd",
+                                should_run=lambda s, p, c: s and p.get_bool("DownloadedSwitch"))]
+
+  installed_specs = plugins.INSTALLED_SPECS
+  try:
+    plugins.INSTALLED_SPECS = {"DownloadedSwitch": {"type": "BOOL", "default": "1"}}
+    plugins.PLUGINS = (DownloadedProcess,)
+    downloaded = plugins.processes()
+    if not downloaded or not downloaded[0].should_run(True, FakeParams(), None):
+      errors.append("P53 downloaded plugin process did not receive ParamsView defaults")
+  finally:
+    plugins.INSTALLED_SPECS = installed_specs
   return errors
 
 

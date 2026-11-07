@@ -280,7 +280,7 @@ def processes(core: set[str] | None = None, role_procs: dict | None = None) -> l
         cloudlog.error(f"xpilot plugin {cls.NAME}: process {proc.name} not claimed, not started")
         continue
       should_run = proc.should_run
-      proc.should_run = lambda started, params, CP, run=should_run, name=cls.NAME: name in resolve(params)[0] and run(started, params, CP)
+      proc.should_run = lambda started, params, CP, run=should_run, name=cls.NAME: name in resolve(params)[0] and run(started, view(params), CP)
       procs.append(proc)
       names.add(proc.name)
   return procs
