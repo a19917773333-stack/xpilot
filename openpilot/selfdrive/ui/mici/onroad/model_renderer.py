@@ -15,7 +15,7 @@ from openpilot.system.ui.lib.shader_polygon import draw_polygon, Gradient
 from openpilot.system.ui.widgets import Widget
 
 from openpilot.selfdrive.ui.sunnypilot.mici.onroad.model_renderer import LANE_LINE_COLORS_SP, ModelRendererSP
-from openpilot.tesla.ui.plugin_ui import Overlays, RoadOverlay  # xpilot plugin road overlays
+from openpilot.tesla.ui.plugin_ui import LeadMarker, Overlays, RoadOverlay  # xpilot plugin road overlays
 
 CLIP_MARGIN = 500
 MIN_DRAW_DISTANCE = 10.0
@@ -47,6 +47,9 @@ class ModelPoints:
 class LeadVehicle:
   def __init__(self):
     self.bar = np.empty((0, 2), dtype=np.float32)
+    self.d_rel = 0.0
+    self.radar = False
+    self.visible = False
     self.d_filter = FirstOrderFilter(0.0, 0.2, 1 / gui_app.target_fps, initialized=False)
     self.y_filter = FirstOrderFilter(0.0, 0.2, 1 / gui_app.target_fps, initialized=False)
     self.fade_filter = FirstOrderFilter(0.0, 0.1, 1 / gui_app.target_fps)
@@ -153,6 +156,9 @@ class ModelRenderer(Widget, ModelRendererSP):
     else:
       self._lead_vehicles = [LeadVehicle(), LeadVehicle()]
 
+    if ui_state.status != UIStatus.DISENGAGED:
+      self._road_overlays.each(lambda o: o.draw_after_leads(self))  # xpilot: draw over host lead bars
+
   def _update_raw_points(self, model):
     """Update raw 3D points from model data"""
     self._path.raw_points = np.array([model.position.x, np.array(model.position.y) + self._camera_offset, model.position.z], dtype=np.float32).T
@@ -170,26 +176,30 @@ class ModelRenderer(Widget, ModelRendererSP):
   def _update_leads(self, sm):
     plan = sm['longitudinalPlan']
     if plan.longitudinalPlanSource == log.LongitudinalPlan.LongitudinalPlanSource.e2e and len(sm['modelV2'].leadsV3) > 1:
-      leads = [(lead.prob > 0.5, lead.x[0], -lead.y[0]) for lead in list(sm['modelV2'].leadsV3)[:2]]
+      leads = [(lead.prob > 0.5, lead.x[0], -lead.y[0], False) for lead in list(sm['modelV2'].leadsV3)[:2]]
     else:
       radar = sm['radarState']
-      leads = [(lead.present, lead.dRel + RADAR_TO_CAMERA, lead.yRel) for lead in (radar.leadOne, radar.leadTwo)]
+      leads = [(lead.present, lead.dRel + RADAR_TO_CAMERA, lead.yRel, bool(getattr(lead, 'radar', False)))
+               for lead in (radar.leadOne, radar.leadTwo)]
 
     # both leads can be the same vehicle
     if leads[0][0] and abs(leads[1][1] - leads[0][1]) < 3.0:
-      leads[1] = (False, 0.0, 0.0)
+      leads[1] = (False, 0.0, 0.0, False)
 
     ss, cs = sm['selfdriveState'], sm['carState']
     # braking disengages without making openpilot unavailable
     available = ss.enabled or ss.engageable or cs.brakePressed
     lane = self._path.raw_points
     opacity = 0.4 if ui_state.status == UIStatus.DISENGAGED else 0.8
-    for lead, (present, d_rel, y_rel) in zip(self._lead_vehicles, leads, strict=True):
+    for lead, (present, d_rel, y_rel, radar_source) in zip(self._lead_vehicles, leads, strict=True):
       visible = available and present and d_rel < MAX_DRAW_DISTANCE and len(lane) > 0
       # snap to a new vehicle instead of sliding over
       if not visible or abs(y_rel - lead.y_filter.x) > 3.0:
         lead.d_filter.initialized = lead.y_filter.initialized = False
       lead.fade_filter.update(opacity if visible else 0.0)
+      lead.visible = visible
+      lead.d_rel = float(d_rel)
+      lead.radar = radar_source
       if visible:
         lead.bar = self._get_lead_bar(lane, lead.d_filter.update(d_rel), lead.y_filter.update(y_rel))
 
@@ -360,6 +370,18 @@ class ModelRenderer(Widget, ModelRendererSP):
   def polygon(self, points: np.ndarray, half_width: float) -> np.ndarray:
     poly = self._map_line_to_polygon(points.astype(np.float32), half_width, 0.0, self._lane_max_idx)
     return poly + np.array([self._rect.x, self._rect.y], dtype=np.float32) if poly.size else poly
+
+  def lead_markers(self) -> list[LeadMarker]:
+    """Visible host lead anchors after _update_leads, in screen px."""
+    offset = np.array([self._rect.x, self._rect.y], dtype=np.float32)
+    out = []
+    for lead in self._lead_vehicles:
+      if not lead.visible or lead.bar.shape != (4, 2):
+        continue
+      anchor = lead.bar[[0, 3]].mean(axis=0) + offset
+      if np.isfinite(anchor).all():
+        out.append(LeadMarker(float(anchor[0]), float(anchor[1]), lead.d_rel, lead.radar))
+    return out
 
   def _map_line_to_polygon(self, line: np.ndarray, y_off: float, z_off: float, max_idx: int, allow_invert: bool = True) -> np.ndarray:
     """Convert 3D line to 2D polygon for rendering."""

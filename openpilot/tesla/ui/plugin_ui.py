@@ -5,6 +5,7 @@ import importlib
 import inspect
 import pkgutil
 import time
+from dataclasses import dataclass
 
 import pyray as rl
 
@@ -63,6 +64,20 @@ class RoadOverlay:
 
   def draw(self, road) -> None:
     pass
+
+  def draw_after_leads(self, road) -> None:
+    """Optional pass after the host draws its lead bars; road.lead_markers() is then populated."""
+    pass
+
+
+@dataclass(frozen=True)
+class LeadMarker:
+  """A visible host lead's screen anchor and source, in screen px."""
+
+  x: float
+  y: float
+  d_rel: float
+  radar: bool
 
 
 def _classes(module_name: str, base) -> list:

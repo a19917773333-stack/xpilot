@@ -658,3 +658,9 @@ The exact X-48 54-byte owner-health hash enables A5; legacy 49-byte firmware sta
 The exclusive long_owner hook, claims and HOST_CAPS ship with controlsd policy/manual integration.
 Runtime floors, paired CC_SP, CAN cadence, reader audit and proof limits are in the
 [host contract](docs/design/xpilot-long-owner-host.md). No device or flash proof is claimed.
+
+### Road overlay lead markers
+
+- `RoadOverlay.draw_after_leads(road)` runs after the host lead bars in the same non-disengaged road pass.
+- `road.lead_markers()` returns `LeadMarker(x, y, d_rel, radar)` for each visible native lead; an empty list means the
+  host has no visible lead bar and compatibility overlays should use `road.polygon()` projection instead.
