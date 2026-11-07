@@ -65,6 +65,7 @@ Run from the repo root with the openpilot python env. Native-only modules (Param
 - P51 shadow logs non-SP/old ABI/stale/wrong bus/malformed CAN or exceeds 25 Hz; OEM endpoints/counter or SP accel are lost
 - P52 a plugin whose requires.plugins dependency is off switches on, or the refusal hides the dependency's title
 - P53 a plugin process should_run reads a downloaded-plugin setting through raw Params instead of ParamsView
+- P54 OSM's offroad map manager and onroad live-map publisher both run while driving, causing duplicate publishers
 """
 import ast
 import json
@@ -992,6 +993,14 @@ def registration_checks(plugins) -> list[str]:
       errors.append("P53 downloaded plugin process did not receive ParamsView defaults")
   finally:
     plugins.INSTALLED_SPECS = installed_specs
+
+  from openpilot.system.manager import process_config
+  mapd = {p.name: p for p in process_config.procs if p.name in ("mapd_manager", "map_osm")}
+  map_params = FakeParams({"MapProvider": "osm"})
+  if not (mapd["mapd_manager"].should_run(False, map_params, None) and mapd["map_osm"].should_run(True, map_params, None)):
+    errors.append("P54 OSM providers do not cover offroad and onroad")
+  if mapd["mapd_manager"].should_run(True, map_params, None) and mapd["map_osm"].should_run(True, map_params, None):
+    errors.append("P54 offroad and onroad OSM publishers run together")
   return errors
 
 

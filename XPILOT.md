@@ -512,6 +512,7 @@ X-50 自动速度策略和 G3 横向均未实现；刷写和实车接合测试�
 
 - **数据**：任何数据源只发布 `liveMapDataSP`，包括限速、前方限速、路名、`targetVelocities`（弯道目标速度）、`source`。
 - **默认数据源**：SP 的 OSM（`mapd`、`mapd_manager`、`map_osm` 进程）。
+  停车时由 `mapd_manager` 维护 OSM 并发布，上路时由 `map_osm` 发布；两者不得同时发布 `liveMapDataSP`。
 - **新增数据源**：写一个插件，声明 `source:map` 和 `process:<名字>`，用 `processes()` 启动自己的进程发布 `liveMapDataSP`（可以继承 `sunnypilot/mapd/live_map_data/base_map_data.py`）。这个插件开启时，SP 的三个地图进程自动不启动；关掉插件就回到 OSM。
 - **已知问题**：地图插件开启时，Tesla 页的 "OSM Map Data" 开关仍显示原值，但不起作用。
 - **导航**：发布 `navInstruction`，再把 256×256 地图图像发到 VisionIPC 的 `mapsd` 流。
