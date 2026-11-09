@@ -11,7 +11,7 @@ Tesla steering protocol failure cases:
 TP1 legacy 2-bit LKAS is decoded with the 3-bit shift and is not recognized as stock LKAS.
 TP2 a valid 2-bit LKAS transmit frame is rejected by the 2-bit safety mode.
 TP3 a 2-bit frame is accepted by the 3-bit safety mode after confusing the control type.
-TP4 stock Autopark ANGLE_CONTROL/emergency steering is blocked because only LKAS is forwarded.
+TP4 stock Autopark ANGLE_CONTROL/emergency steering is blocked from passthrough or allows openpilot TX.
 """
 import random
 import unittest
