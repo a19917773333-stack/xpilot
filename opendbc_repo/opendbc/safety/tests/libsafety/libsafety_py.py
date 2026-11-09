@@ -1,6 +1,7 @@
 import os
 import re
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -36,7 +37,9 @@ def _build_libsafety(release: bool = False) -> str:
   os.close(fd)
 
   subprocess.check_call(['cc', '-fPIC', *cflags, '-I', root, '-c', safety_c, '-o', safety_os])
-  subprocess.check_call(['cc', '-shared', safety_os, '-o', libsafety_so, *ldflags])
+  # Keep firmware helpers such as crc32 bound to this library instead of Python's zlib.
+  symbol_binding = ['-Wl,-Bsymbolic'] if sys.platform.startswith('linux') else []
+  subprocess.check_call(['cc', '-shared', *symbol_binding, safety_os, '-o', libsafety_so, *ldflags])
   return libsafety_so
 
 
