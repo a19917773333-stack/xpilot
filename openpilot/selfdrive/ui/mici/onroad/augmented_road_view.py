@@ -359,6 +359,10 @@ class AugmentedRoadView(CameraView):
     # Ensure zoom views the whole area
     zoom = max(zoom, w / (2 * cx), h / (2 * cy))
 
+    # Match the big-screen host's 2.9x mici texture scaling without enlarging camera pixels.
+    if gui_app.big_ui():
+      zoom /= 2.9
+
     # Calculate max allowed offsets with margins
     margin = 5
     max_x_offset = max(0.0, cx * zoom - w / 2 - margin)
