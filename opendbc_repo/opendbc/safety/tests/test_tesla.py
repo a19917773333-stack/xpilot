@@ -11,6 +11,7 @@ Tesla steering protocol failure cases:
 TP1 legacy 2-bit LKAS is decoded with the 3-bit shift and is not recognized as stock LKAS.
 TP2 a valid 2-bit LKAS transmit frame is rejected by the 2-bit safety mode.
 TP3 a 2-bit frame is accepted by the 3-bit safety mode after confusing the control type.
+TP4 stock Autopark ANGLE_CONTROL/emergency steering is blocked because only LKAS is forwarded.
 """
 import random
 import unittest
@@ -483,16 +484,23 @@ class TestTeslaSteeringProtocolSafety(unittest.TestCase):
     self.safety.set_safety_hooks(CarParams.SafetyModel.tesla, param)
     self.safety.init_tests()
 
-  def _steering_frame(self, packer, control_type):
-    return packer.make_can_msg_safety("DAS_steeringControl", CANBUS.party, {
+  def _steering_frame(self, packer, control_type, bus=CANBUS.party):
+    return packer.make_can_msg_safety("DAS_steeringControl", bus, {
       "DAS_steeringAngleRequest": 0, "DAS_steeringControlType": control_type,
     })
 
+  def _clear_autopark_startup_state(self):
+    msg = self.packer_3bit.make_can_msg_safety("DI_state", 0, {
+      "DI_cruiseState": 0, "DI_autoparkState": 0,
+    })
+    self.assertTrue(self.safety.safety_rx_hook(msg))
+
   def _stock_lkas_forwarded(self, param, packer):
     self._init(param)
+    self._clear_autopark_startup_state()
     self.safety.set_controls_allowed(False)
-    self.safety.safety_rx_hook(self._steering_frame(packer, 2))
-    return self.safety.safety_fwd_hook(2, MSG_DAS_steeringControl) == -1
+    self.safety.safety_rx_hook(self._steering_frame(packer, 2, bus=CANBUS.autopilot_party))
+    return self.safety.safety_fwd_hook(2, MSG_DAS_steeringControl) == 0
 
   def test_2bit_stock_lkas_uses_bit_six(self):
     self.assertTrue(self._stock_lkas_forwarded(TeslaSafetyFlags.DAS_STEERING_2_BIT, self.packer_2bit),
@@ -512,6 +520,48 @@ class TestTeslaSteeringProtocolSafety(unittest.TestCase):
 
   def test_3bit_stock_lkas_still_uses_bit_five(self):
     self.assertTrue(self._stock_lkas_forwarded(0, self.packer_3bit))
+
+  def test_stock_non_lkas_steering_is_forwarded_until_cleared(self):
+    protocols = (
+      (TeslaSafetyFlags.DAS_STEERING_2_BIT, self.packer_2bit),
+      (0, self.packer_3bit),
+    )
+    for param, packer in protocols:
+      for control_type in (1, 3):  # ANGLE_CONTROL, EMERGENCY_LANE_KEEP
+        with self.subTest(param=param, control_type=control_type):
+          self._init(param)
+          self._clear_autopark_startup_state()
+          self.safety.set_controls_allowed(False)
+
+          stock_frame = self._steering_frame(packer, control_type, bus=CANBUS.autopilot_party)
+          self.assertTrue(self.safety.safety_rx_hook(stock_frame))
+          self.assertEqual(0, self.safety.safety_fwd_hook(2, MSG_DAS_steeringControl),
+                           "TP4: stock Autopark steering must remain forwarded")
+
+          self.safety.set_controls_allowed(True)
+          self.assertFalse(self.safety.safety_tx_hook(self._steering_frame(packer, control_type)),
+                           "TP4: openpilot must not transmit while stock steering is active")
+
+          cleared_frame = self._steering_frame(packer, 0, bus=CANBUS.autopilot_party)
+          self.assertTrue(self.safety.safety_rx_hook(cleared_frame))
+          self.assertEqual(-1, self.safety.safety_fwd_hook(2, MSG_DAS_steeringControl))
+          self.assertTrue(self.safety.safety_tx_hook(self._steering_frame(packer, 0)))
+
+  def test_stock_non_lkas_does_not_latch_while_controls_allowed(self):
+    protocols = (
+      (TeslaSafetyFlags.DAS_STEERING_2_BIT, self.packer_2bit),
+      (0, self.packer_3bit),
+    )
+    for param, packer in protocols:
+      with self.subTest(param=param):
+        self._init(param)
+        self._clear_autopark_startup_state()
+        self.safety.set_controls_allowed(True)
+
+        stock_frame = self._steering_frame(packer, 1, bus=CANBUS.autopilot_party)
+        self.assertTrue(self.safety.safety_rx_hook(stock_frame))
+        self.assertEqual(-1, self.safety.safety_fwd_hook(2, MSG_DAS_steeringControl))
+        self.assertTrue(self.safety.safety_tx_hook(self._steering_frame(packer, 1)))
 
 
 class TestTeslaIgnition(common.SafetyTestBase):
