@@ -105,13 +105,19 @@ def fingerprint(can_recv: CanRecvCallable, can_send: CanSendCallable, set_obd_mu
   ecu_rx_addrs = set()
 
   start_time = time.monotonic()
+  cache_candidate = False
   if not skip_fw_query:
-    if cached_params is not None and cached_params.brand != "mock" and len(cached_params.carFw) > 0 and \
-       (cached_params.carVin != VIN_UNKNOWN or os.environ.get("REPLAY")) and not disable_fw_cache:
-      carlog.warning("Using cached CarParams")
+    cache_valid = cached_params is not None and cached_params.brand != "mock" and len(cached_params.carFw) > 0 and not disable_fw_cache
+    cache_has_vin = cache_valid and (cached_params.carVin != VIN_UNKNOWN or os.environ.get("REPLAY"))
+    tesla_cache_without_vin = cache_valid and cached_params.brand == "tesla" and \
+      cached_params.fingerprintSource == CarParams.FingerprintSource.fw and not cached_params.fuzzyFingerprint
+
+    if cache_has_vin or tesla_cache_without_vin:
       vin_rx_addr, vin_rx_bus, vin = -1, -1, cached_params.carVin
       car_fw = list(cached_params.carFw)
-      cached = True
+      cached = False
+      cache_candidate = True
+      exact_fw_match, fw_candidates = match_fw_to_car(car_fw, vin)
     else:
       carlog.warning("Getting VIN & FW versions")
       # enable OBD multiplexing for VIN query
@@ -121,9 +127,8 @@ def fingerprint(can_recv: CanRecvCallable, can_send: CanSendCallable, set_obd_mu
       vin_rx_addr, vin_rx_bus, vin = get_vin(can_recv, can_send, (0, 1))
       ecu_rx_addrs = get_present_ecus(can_recv, can_send, set_obd_multiplexing)
       car_fw = get_fw_versions_ordered(can_recv, can_send, set_obd_multiplexing, vin, ecu_rx_addrs)
+      exact_fw_match, fw_candidates = match_fw_to_car(car_fw, vin)
       cached = False
-
-    exact_fw_match, fw_candidates = match_fw_to_car(car_fw, vin)
   else:
     vin_rx_addr, vin_rx_bus, vin = -1, -1, VIN_UNKNOWN
     exact_fw_match, fw_candidates, car_fw = True, set(), []
@@ -143,6 +148,19 @@ def fingerprint(can_recv: CanRecvCallable, can_send: CanSendCallable, set_obd_mu
   # drain CAN socket so we get the latest messages
   can_recv()
   car_fingerprint, finger = can_fingerprint(can_recv)
+
+  # A valid cache is not enough if live CAN clearly identifies another car.
+  if cache_candidate and car_fingerprint is not None and car_fingerprint != cached_params.carFingerprint:
+    carlog.warning("Cached CarParams do not match live CAN fingerprint; querying VIN & FW versions")
+    set_obd_multiplexing(True)
+    vin_rx_addr, vin_rx_bus, vin = get_vin(can_recv, can_send, (0, 1))
+    ecu_rx_addrs = get_present_ecus(can_recv, can_send, set_obd_multiplexing)
+    car_fw = get_fw_versions_ordered(can_recv, can_send, set_obd_multiplexing, vin, ecu_rx_addrs)
+    exact_fw_match, fw_candidates = match_fw_to_car(car_fw, vin)
+    set_obd_multiplexing(False)
+  elif cache_candidate:
+    carlog.warning("Using cached CarParams")
+    cached = True
 
   exact_match = True
   source = CarParams.FingerprintSource.can

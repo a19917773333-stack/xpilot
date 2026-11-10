@@ -21,6 +21,7 @@ from opendbc.car.interfaces import CarInterfaceBase, RadarInterfaceBase
 from openpilot.selfdrive.pandad import can_capnp_to_list, can_list_to_can_capnp
 from openpilot.selfdrive.car.cruise import VCruiseHelper
 from openpilot.selfdrive.car.helpers import convert_carControlSP, convert_to_capnp
+from openpilot.selfdrive.car.params_cache import get_cached_car_params
 
 from openpilot.sunnypilot.mads.helpers import set_alternative_experience, set_car_specific_params
 from openpilot.sunnypilot.selfdrive.car import interfaces as sunnypilot_interfaces
@@ -102,11 +103,7 @@ class Car:
 
       alpha_long_allowed = self.params.get_bool("AlphaLongitudinalEnabled")
 
-      cached_params = None
-      cached_params_raw = self.params.get("CarParamsCache")
-      if cached_params_raw is not None:
-        with car.CarParams.from_bytes(cached_params_raw) as _cached_params:
-          cached_params = _cached_params
+      cached_params = get_cached_car_params(self.params)
 
       fixed_fingerprint = (self.params.get("CarPlatformBundle") or {}).get("platform", None)
       init_params_list_sp = sunnypilot_interfaces.initialize_params(self.params)
