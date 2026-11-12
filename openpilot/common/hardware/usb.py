@@ -82,6 +82,11 @@ def get_usb_state() -> list[dict]:
   return devices
 
 
+def chestnut_usb_ready() -> bool:
+  """A runtime retry is only safe after the GPU enumerates at USB3 speed."""
+  return any(device["speedMbps"] >= 5000 and is_chestnut_runtime_device(device) for device in get_usb_state())
+
+
 def set_usb_state(device_state, devices: list[dict]) -> None:
   entries = device_state.usbState.init('devices', len(devices))
 

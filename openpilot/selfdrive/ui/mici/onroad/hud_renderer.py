@@ -124,9 +124,9 @@ class HudRenderer(Widget):
     self._txt_wheel: rl.Texture = gui_app.texture('icons_mici/wheel.png', 50, 50)
     self._txt_wheel_critical: rl.Texture = gui_app.texture('icons_mici/wheel_critical.png', 50, 50)
     self._txt_exclamation_point: rl.Texture = gui_app.texture('icons_mici/exclamation_point.png', 9, 44)
-    self._txt_chestnut: rl.Texture = gui_app.texture('icons_mici/chestnut.png', 60, 44)
-    self._txt_chestnut_green: rl.Texture = gui_app.texture('icons_mici/chestnut_green.png', 60, 44)
-    self._txt_chestnut_orange: rl.Texture = gui_app.texture('icons_mici/chestnut_orange.png', 75, 44)
+    self._txt_chestnut: rl.Texture = gui_app.texture('icons_mici/chestnut.png', 20, 15)
+    self._txt_chestnut_green: rl.Texture = gui_app.texture('icons_mici/chestnut_green.png', 20, 15)
+    self._txt_chestnut_orange: rl.Texture = gui_app.texture('icons_mici/chestnut_orange.png', 20, 15)
     self._chestnut_icon: rl.Texture | None = None
     self._wheel_alpha_filter = FirstOrderFilter(0, 0.05, 1 / gui_app.target_fps)
     self._wheel_y_filter = FirstOrderFilter(0, 0.1, 1 / gui_app.target_fps)
@@ -207,7 +207,7 @@ class HudRenderer(Widget):
     if icon is not self._chestnut_icon:
       self._chestnut_fade_time = rl.get_time()
       self._chestnut_icon = icon
-    visible = loading or rl.get_time() - self._chestnut_fade_time < SET_SPEED_PERSISTENCE
+    visible = loading or ui_state.chestnut_state == ChestnutState.ACTIVE
     alpha = self._chestnut_alpha_filter.update(visible)
     if alpha < 1e-2:
       return

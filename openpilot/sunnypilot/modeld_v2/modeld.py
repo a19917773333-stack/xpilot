@@ -29,7 +29,7 @@ from msgq.visionipc import VisionIpcClient, VisionBuf
 from opendbc.car.car_helpers import get_demo_car_params
 from openpilot.common.swaglog import cloudlog
 from openpilot.common.params import Params
-from openpilot.common.hardware.usb import cable_connected
+from openpilot.common.hardware.usb import cable_connected, chestnut_usb_ready
 from openpilot.common.filter_simple import FirstOrderFilter
 from openpilot.common.realtime import config_realtime_process, DT_MDL
 from openpilot.common.transformations.camera import DEVICE_CAMERAS
@@ -50,6 +50,7 @@ from openpilot.sunnypilot.modeld_v2.helpers import load_model
 from openpilot.sunnypilot.modeld_v2.frame_fusion import fused_with_warp
 from openpilot.sunnypilot.modeld_v2.model_adapters import get_model_adapter
 from openpilot.sunnypilot.models.helpers import get_active_bundle
+from openpilot.sunnypilot.modeld_v2.recovery import ChestnutRecovery, is_chestnut_link_error
 from openpilot.sunnypilot.selfdrive.controls.lib.relc import RoadEdgeLaneChangeController
 
 PROCESS_NAME = "openpilot.selfdrive.modeld.modeld_tinygrad"
@@ -272,6 +273,7 @@ def main(demo=False):
   params = Params()
   params.put_bool("ChestnutLoading", CHESTNUT)
   params.remove("ChestnutActive")
+  chestnut_recovery = ChestnutRecovery() if CHESTNUT else None
 
   gc.disable()
 
@@ -412,6 +414,14 @@ def main(demo=False):
     is_rhd = sm["driverMonitoringState"].isRHD
     frame_id = sm["narrowRoadCameraState"].frameId
     v_ego = max(sm["carState"].vEgo, 0.)
+
+    if chestnut_recovery is not None and chestnut_recovery.pending and not model.chestnut and run_count % 20 == 0:
+      safe_to_cycle = (sm.seen["controlsState"] and not sm["controlsState"].enabled and
+                       not sm["controlsState"].active and v_ego < 0.5)
+      if chestnut_recovery.ready(time.monotonic(), usb_ready=chestnut_usb_ready(), safe_to_cycle=safe_to_cycle):
+        cloudlog.warning("chestnut link recovered while disengaged; requesting one clean model reload")
+        params.put_bool("ChestnutRetry", True)
+        params.put_bool("OnroadCycleRequested", True)
     if sm.frame % 60 == 0:
       model.lat_delay = get_lat_delay(params, sm["lateralDelay"].lateralDelay)
       model.PLANPLUS_CONTROL = params.get("PlanplusControl", return_default=True)
@@ -468,10 +478,12 @@ def main(demo=False):
       send_chestnut = (chestnut_state is not None and
                        run_count % round(model.constants.MODEL_FREQ / SERVICE_LIST['chestnutGpuState'].frequency) == 0)
       model_output = model.run(bufs, transforms, inputs, chestnut_state.send if send_chestnut else None)
-    except Exception:
+    except Exception as e:
       if not model.chestnut:
         raise
       cloudlog.exception("big model failed, fall back to small")
+      if chestnut_recovery is not None and is_chestnut_link_error(e):
+        chestnut_recovery.failed()
       params.put_bool("ChestnutActive", False)
       assert small_model is not None
       model = small_model
